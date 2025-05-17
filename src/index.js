@@ -4,7 +4,7 @@ import cors from "cors";
 import connectDB from "./config/db.js"; 
 import cookieParser from "cookie-parser";
 
-import authRoutes from './routes/user.route.js'
+import userRoutes from "./routes/user.route.js";
 
 dotenv.config();
 const app = express();
@@ -19,7 +19,10 @@ app.use(express.json());
 
 //routes-
 
-app.use('/api/auth', authRoutes);
+app.use('/api/v1', userRoutes);
+
+
+
 
 
 app.get("/", (req, res) => {
