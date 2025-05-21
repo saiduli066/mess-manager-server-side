@@ -15,7 +15,7 @@ const userSchema = new Schema(
     password: {
       type: String,
       required: true,
-      minlength: 6
+      minlength: 6,
     },
     image: String, // Cloudinary URL
     role: {
@@ -28,6 +28,10 @@ const userSchema = new Schema(
       ref: "Mess",
     },
     totalDeposit: {
+      type: Number,
+      default: 0,
+    },
+    mealCount: {
       type: Number,
       default: 0,
     },

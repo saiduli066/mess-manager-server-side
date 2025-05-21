@@ -4,7 +4,7 @@ import cors from "cors";
 import connectDB from "./config/db.js"; 
 import cookieParser from "cookie-parser";
 
-import userRoutes from "./routes/user.route.js";
+import routes from "./routes/user.route.js";
 
 dotenv.config();
 const app = express();
@@ -19,7 +19,7 @@ app.use(express.json());
 
 //routes-
 
-app.use('/api/v1', userRoutes);
+app.use('/api/v1', routes);
 
 
 

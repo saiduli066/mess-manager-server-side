@@ -22,6 +22,8 @@ export const createMess = async (req, res) => {
     await User.findByIdAndUpdate(userId, {
       messId: mess._id,
       role: "admin",
+      mealCount: 0,
+      depositAmount: 0,
     });
 
     res.status(201).json({ message: "Mess created", mess });
@@ -50,15 +52,19 @@ export const joinMess = async (req, res) => {
         .json({ message: `You're already a member of ${mess.name} mess` });
       }
       
+
       //update mess info
 
       mess.members.push(userId);
       await mess.save();
 
+
     //updating user's mess info
     await User.findByIdAndUpdate(userId, {
-        messId: mess._id,
-        role:"member"
+      messId: mess._id,
+      role: "member",
+      mealCount: 0,
+      depositAmount: 0,
     });
       
     res.status(200).json({ message: "Successfully joined the mess", mess });
@@ -69,7 +75,7 @@ export const joinMess = async (req, res) => {
   }
 };
 
-// get mess
+// get mess info of a specific user. 
 
 export const getMessInfo = async (req, res) => {
   try {
@@ -80,8 +86,37 @@ export const getMessInfo = async (req, res) => {
     }
 
     res.status(200).json({ mess: user.messId });
+
+
   } catch (error) {
     console.error("Error in getMessInfo:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+
+// get mess members data--->
+
+export const messMembersData = async(req, res) => {
+  
+ try {
+   const user = await User.findById(req.userId);
+
+   if (!user.messId) {
+     res.status(400).json({ message: "You are not joined in any mess." });
+   }
+
+   // finding the members data of the same mess using user's  messId.
+   const membersData = await User.find({ messId: user.messId })
+     .select("Image name totalDeposit mealCount role")
+     .sort({ role: 1 });
+   
+   
+   res.status(200).json({ membersData });
+
+   
+ } catch (error) {
+   console.error("Error in getMessMembersData:", error.message);
+   res.status(500).json({ message: "Internal server error" });
+ }
+}
