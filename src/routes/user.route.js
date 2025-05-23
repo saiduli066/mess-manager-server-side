@@ -1,25 +1,30 @@
 import express from "express";
-import { login, logout, signup } from "../controllers/user.controller.js";
-import { createMess, getMessInfo, joinMess, messMembersData } from "../controllers/mess.controller.js";
+import { getUserProfile, login, logout, signup, updateUserProfile } from "../controllers/user.controller.js";
+import { createMess, getMessInfo, joinMess, leaveMess, messMembersData } from "../controllers/mess.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
-import { addMessEntry } from "../controllers/messEntry.controller.js";
+import { addMessEntry, getMessEntries } from "../controllers/messEntry.controller.js";
 
 const router = express.Router();
 
-// Public Routes
+// Public Routes (auth)
 router.post("/auth/register", signup);
 router.post("/auth/login", login);
 router.post('/auth/logout', logout);
 
 
 // Protected Routes
+
 router.post("/create-mess",protect,createMess)
 router.post("/join-mess", protect, joinMess);
+router.patch("/leave-mess", protect, leaveMess);
+
 router.get("/mess/my-mess", protect, getMessInfo);
-// router.put("/profile", protect, updateProfile);
+router.get("/profile", protect, getUserProfile);
+router.put("/profile", protect, updateUserProfile);
 
 router.get("/mess/members-data", protect, messMembersData);
 router.post("/mess-entry", protect, addMessEntry);
+router.get("/mess-entry/:messId", protect, getMessEntries);
 
 
 export default router;

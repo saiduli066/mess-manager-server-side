@@ -95,6 +95,36 @@ export const getMessInfo = async (req, res) => {
 };
 
 
+//leave a mess
+
+// Leave mess
+export const leaveMess = async (req, res) => {
+  try {
+    const userId = req.user._id; // From protect middleware
+
+    const user = await User.findById(userId);
+
+    if (!user || !user.messId) {
+      return res.status(400).json({ message: "User is not part of any mess" });
+    }
+
+    // Removing user from Mess.members array
+    await Mess.findByIdAndUpdate(user.messId, { $pull: { members: userId } });
+
+    user.messId = null;
+    user.mealCount = 0;
+    user.totalDeposit = 0;
+
+    await user.save();
+
+    res.status(200).json({ message: "You have successfully left the mess" });
+  } catch (error) {
+    console.error("error from leaveMess controller: ", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
 // get mess members data--->
 
 export const messMembersData = async(req, res) => {

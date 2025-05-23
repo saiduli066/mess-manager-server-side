@@ -1,12 +1,11 @@
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
 import { generateToken } from "../utils/jwt-token.js";
-
-
+import Mess from "../models/mess.model.js";
 
 //Sign Up
 export const signup = async (req, res) => {
-   try {
+  try {
     const { name, email, password, phone, image } = req.body;
 
     const isExist = await User.findOne({ email });
@@ -36,56 +35,41 @@ export const signup = async (req, res) => {
     } else {
       res.status(400).json({ message: "Invalid user data" });
     }
-
-   } catch (error) {
+  } catch (error) {
     console.log("error from signup controller: ", error.message);
     res.status(500).json({ message: "Internal Server Error" });
- 
-   }
-}
-
+  }
+};
 
 //login
 
 export const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        const user =await User.findOne({ email });
+    const user = await User.findOne({ email });
 
-        if (!user) {
-            return res
-              .status(400)
-              .json({ message: "Invalid email or password" });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid email or password" });
+    }
+    const match = await bcrypt.compare(password, user.password);
 
-        }
-        const match = await bcrypt.compare(password, user.password);
-
-        if (!match) {
-            return res
-              .status(400)
-              .json({ message: "Invalid email or password" });
-
-        }
-      
-            generateToken(user._id, res);
-            res.json({
-              _id: user._id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-            });
-        
-
-
-
-    } catch (error) {
-        console.log("error from login controller: ", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
+    if (!match) {
+      return res.status(400).json({ message: "Invalid email or password" });
     }
 
-
-}
+    generateToken(user._id, res);
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (error) {
+    console.log("error from login controller: ", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 
 //logout
 export const logout = async (req, res) => {
@@ -102,4 +86,69 @@ export const logout = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
-  
+
+//  user's profile---
+
+export const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId).select(
+      "name email phone image messId"
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let messName = "Not joined in any mess";
+
+    if (user.messId) {
+      const mess = await Mess.findById(user.messId).select("name");
+      if (mess) messName = mess.name;
+    }
+
+    res.status(200).json({
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      image: user.image,
+      messName,
+    });
+  } catch (error) {
+    console.error("Error in getUserProfile:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
+
+//update user's profile-
+
+import User from "../models/user.model.js";
+
+export const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { name, phone, image } = req.body;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { name, phone, image },
+      { new: true, runValidators: true }
+    ).select("name email phone image");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      message: "Profile updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error in updateUserProfile:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
