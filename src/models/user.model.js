@@ -11,13 +11,17 @@ const userSchema = new Schema(
       required: true,
       unique: true,
     },
-    phone: String,
+    phone: {
+      type: String,
+    },
     password: {
       type: String,
       required: true,
       minlength: 6,
     },
-    image: String, // Cloudinary URL
+    image: {
+      type: String, // Cloudinary URL
+    },
     role: {
       type: String,
       enum: ["admin", "member"],

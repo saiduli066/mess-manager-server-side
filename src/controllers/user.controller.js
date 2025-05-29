@@ -1,8 +1,7 @@
 import bcrypt from "bcryptjs";
-import User from "../models/user.model.js";
 import { generateToken } from "../utils/jwt-token.js";
 import Mess from "../models/mess.model.js";
-
+import User from "../models/user.model.js";
 //Sign Up
 export const signup = async (req, res) => {
   try {
@@ -30,6 +29,8 @@ export const signup = async (req, res) => {
         _id: newUser._id,
         name: newUser.name,
         email: newUser.email,
+        phone: newUser.phone,
+        image:newUser?.image,
         role: newUser.role,
       });
     } else {
@@ -63,6 +64,8 @@ export const login = async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone:user?.phone,
+      image:user?.image,
       role: user.role,
     });
   } catch (error) {
@@ -84,6 +87,17 @@ export const logout = async (req, res) => {
   } catch (error) {
     console.error("error from logout controller: ", error.message);
     res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
+//check auth
+export const checkAuth = (req, res) => {
+  try {
+    res.status(200).json(req.user);
+  } catch (error) {
+    console.log("error in checkAuth controller: ", error.message);
+    res.status(500).json({ message: "Internal server error." });
   }
 };
 
@@ -111,8 +125,8 @@ export const getUserProfile = async (req, res) => {
     res.status(200).json({
       name: user.name,
       email: user.email,
-      phone: user.phone,
-      image: user.image,
+      phone: user?.phone,
+      image: user?.image,
       messName,
     });
   } catch (error) {
@@ -124,8 +138,6 @@ export const getUserProfile = async (req, res) => {
 
 
 //update user's profile-
-
-import User from "../models/user.model.js";
 
 export const updateUserProfile = async (req, res) => {
   try {

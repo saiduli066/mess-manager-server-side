@@ -12,7 +12,15 @@ const PORT = process.env.PORT || 5000;
 
 
 // Middlewares-
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173", 
+      "https://frontend.com", // todo: change this url
+    ],
+    credentials: true,
+  })
+);
 app.use(cookieParser());
 app.use(express.json());
 
