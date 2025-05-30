@@ -36,25 +36,21 @@ export const createMess = async (req, res) => {
 };
 
 
-// join mess via invite code
-
+// join mess 
 
 export const joinMess = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Check if user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Prevent joining multiple messes
-    if (user.mess) {
+    if (user.messId) {
       return res.status(400).json({ message: "You already joined a mess." });
     }
 
-    // code from either query or body
     const codeFromQuery = req.query.code;
     const codeFromBody = req.body.code;
     const messCode = codeFromQuery || codeFromBody;
@@ -63,27 +59,26 @@ export const joinMess = async (req, res) => {
       return res.status(400).json({ message: "Mess code is required" });
     }
 
-    // Find the mess
     const mess = await Mess.findOne({ code: messCode });
     if (!mess) {
       return res.status(404).json({ message: "Invalid mess code" });
     }
 
-    // Add user to mess
-     mess.members.push(userId);
+    // Add user to mess members
+    mess.members.push(userId);
     await mess.save();
 
-    // Update user's mess reference
-     user.mess = mess._id;
+    // Update user's messId reference
+    user.messId = mess._id;
     await user.save();
 
     return res.status(200).json({ message: "Successfully joined mess", mess });
+
   } catch (error) {
     console.error("Join mess error:", error);
     return res.status(500).json({ message: "Something went wrong" });
   }
 };
-
 
 
 
@@ -93,13 +88,13 @@ export const getMessInfo = async (req, res) => {
   try {
     const user = await User.findById(req.userId).populate("messId");
 
-    if (!user.messId) {
-     return res.status(404).json({ message: "User has not joined any mess yet!" });
+    if (!user?.messId) {
+      return res
+        .status(404)
+        .json({ message: "You have not joined any mess yet!" });
     }
 
-   return res.status(200).json({ mess: user.messId });
-
-
+    return res.status(200).json({ mess: user.messId });
   } catch (error) {
     console.error("Error in getMessInfo:", error.message);
     res.status(500).json({ message: "Internal server error" });
@@ -107,11 +102,11 @@ export const getMessInfo = async (req, res) => {
 };
 
 
-//leave a mess
+
 
 // Leave mess
 export const leaveMess = async (req, res) => {
-  const userId = req.userId;  //from protect middleware
+  const userId = req.userId;  //from 'protect middleware'
 
   const user = await User.findById(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
@@ -147,10 +142,13 @@ export const leaveMess = async (req, res) => {
 export const messMembersData = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
-    if (!user || !user.messId) {
+
+    console.log("user mess-  ", user.messId);
+
+    if (!user?.messId) {
       return res
         .status(400)
-        .json({ message: "You are not joined in any mess." });
+        .json({ message: "You have not joined in any mess yet." });
     }
 
     const membersData = await User.find({ messId: user.messId })

@@ -2,6 +2,8 @@ import bcrypt from "bcryptjs";
 import { generateToken } from "../utils/jwt-token.js";
 import Mess from "../models/mess.model.js";
 import User from "../models/user.model.js";
+import cloudinary from "../utils/cloudinary.js";
+
 //Sign Up
 export const signup = async (req, res) => {
   try {
@@ -127,6 +129,7 @@ export const getUserProfile = async (req, res) => {
       email: user.email,
       phone: user?.phone,
       image: user?.image,
+      role:user?.role,
       messName,
     });
   } catch (error) {
@@ -139,28 +142,74 @@ export const getUserProfile = async (req, res) => {
 
 //update user's profile-
 
+// export const updateUserProfile = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const { phone, image } = req.body;
+
+//     const updatedUser = await User.findByIdAndUpdate(
+//       userId,
+//       { phone, image },
+//       { new: true, runValidators: true }
+//     ).select("name email phone image");
+
+//     if (!updatedUser) {
+//       return res.status(404).json({ message: "User not found" });
+//     }
+
+//     res.status(200).json({
+//       message: "Profile updated successfully",
+//       user: updatedUser,
+//     });
+//   } catch (error) {
+//     console.error("Error in updateUserProfile:", error.message);
+//     res.status(500).json({ message: "Internal Server Error" });
+//   }
+// };
+
+
+
+
+
 export const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { name, phone, image } = req.body;
+    const { phone } = req.body;
 
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { name, phone, image },
-      { new: true, runValidators: true }
-    ).select("name email phone image");
+    let imageUrl;
+
+    //  image upload to Cloudinary
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "mess-manager/user-profiles",
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const updateFields = {};
+    if (phone) updateFields.phone = phone;
+    if (imageUrl) updateFields.image = imageUrl;
+
+    // If nothing is to update, return early
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateFields, {
+      new: true,
+      runValidators: true,
+    }).select("name email phone image");
 
     if (!updatedUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.status(200).json({
+   return res.status(200).json({
       message: "Profile updated successfully",
       user: updatedUser,
     });
   } catch (error) {
-    console.error("Error in updateUserProfile:", error.message);
-    res.status(500).json({ message: "Internal Server Error" });
+    console.error("Error in updateUserProfile:", error);
+   return  res.status(500).json({ message: "Internal Server Error" });
   }
 };
-
