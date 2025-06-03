@@ -190,7 +190,6 @@ export const updateUserProfile = async (req, res) => {
     if (phone) updateFields.phone = phone;
     if (imageUrl) updateFields.image = imageUrl;
 
-    // If nothing is to update, return early
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({ message: "No fields to update" });
     }
