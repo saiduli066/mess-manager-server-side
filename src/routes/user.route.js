@@ -3,11 +3,10 @@ import { checkAuth, getUserProfile, login, logout, signup, updateUserProfile } f
 import { createMess, getMessInfo, joinMess, leaveMess, messMembersData } from "../controllers/mess.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import { addMessEntry, getMessEntries } from "../controllers/messEntry.controller.js";
-import upload from "../middleware/upload.js";
 
 const router = express.Router();
 
-// Public Routes (auth)
+// Public Routes 
 router.post("/auth/signup", signup);
 router.post("/auth/login", login);
 router.post('/auth/logout', logout);
@@ -23,7 +22,8 @@ router.patch("/leave-mess", protect, leaveMess);
 
 router.get("/mess/my-mess", protect, getMessInfo);
 router.get("/profile", protect, getUserProfile);
-router.put("/profile", protect,upload.single("image"), updateUserProfile);
+router.put("/profile", protect, updateUserProfile);
+
 
 router.get("/mess-members", protect, messMembersData);
 router.post("/mess-entries", protect, addMessEntry);

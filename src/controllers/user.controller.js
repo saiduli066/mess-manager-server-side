@@ -140,50 +140,19 @@ export const getUserProfile = async (req, res) => {
 
 
 
-//update user's profile-
-
-// export const updateUserProfile = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-//     const { phone, image } = req.body;
-
-//     const updatedUser = await User.findByIdAndUpdate(
-//       userId,
-//       { phone, image },
-//       { new: true, runValidators: true }
-//     ).select("name email phone image");
-
-//     if (!updatedUser) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     res.status(200).json({
-//       message: "Profile updated successfully",
-//       user: updatedUser,
-//     });
-//   } catch (error) {
-//     console.error("Error in updateUserProfile:", error.message);
-//     res.status(500).json({ message: "Internal Server Error" });
-//   }
-// };
-
-
-
-
-
 export const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { phone } = req.body;
+    const { phone, image } = req.body;
 
     let imageUrl;
 
-    //  image upload to Cloudinary
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "mess-manager/user-profiles",
+    // Base64 image upload
+    if (image && image.startsWith("data:image")) {
+      const uploadResponse = await cloudinary.uploader.upload(image, {
+        folder: "messUserPhotos",
       });
-      imageUrl = result.secure_url;
+      imageUrl = uploadResponse.secure_url;
     }
 
     const updateFields = {};
@@ -203,12 +172,14 @@ export const updateUserProfile = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-   return res.status(200).json({
+    return res.status(200).json({
       message: "Profile updated successfully",
       user: updatedUser,
     });
   } catch (error) {
     console.error("Error in updateUserProfile:", error);
-   return  res.status(500).json({ message: "Internal Server Error" });
+    return res
+      .status(500)
+      .json({ message: error.message || "Internal Server Error" });
   }
 };
