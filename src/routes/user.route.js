@@ -2,7 +2,7 @@ import express from "express";
 import { checkAuth, getUserProfile, login, logout, signup, updateUserProfile } from "../controllers/user.controller.js";
 import { createMess, getMessInfo, joinMess, leaveMess, messMembersData } from "../controllers/mess.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
-import { addMessEntry, getMessEntries } from "../controllers/messEntry.controller.js";
+import { addMessEntry, getMessEntries, updateMessEntry } from "../controllers/messEntry.controller.js";
 
 const router = express.Router();
 
@@ -28,6 +28,7 @@ router.put("/profile", protect, updateUserProfile);
 router.get("/mess-members", protect, messMembersData);
 router.post("/mess-entries", protect, addMessEntry);
 router.get("/mess-entries/:messId", protect, getMessEntries);
+router.put("/mess-entries/:messId/entries", protect, updateMessEntry);
 
 
 export default router;

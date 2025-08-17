@@ -88,6 +88,7 @@ export const addMessEntry = async (req, res) => {
 };
 
 
+
 export const getMessEntries = async (req, res) => {
   try {
     const { messId } = req.params;
@@ -106,8 +107,8 @@ export const getMessEntries = async (req, res) => {
     const selectedMonth = parseInt(month) || now.getMonth() + 1;
     const selectedYear = parseInt(year) || now.getFullYear();
 
-    const start = new Date(selectedYear, selectedMonth - 1, 1); 
-    const end = new Date(selectedYear, selectedMonth, 1); 
+    const start = new Date(selectedYear, selectedMonth - 1, 1); // inclusive
+    const end = new Date(selectedYear, selectedMonth, 1); // exclusive
 
     const filter = {
       messId: new mongoose.Types.ObjectId(messId),
@@ -141,21 +142,49 @@ export const getMessEntries = async (req, res) => {
     const mealRate =
       totalMeals > 0 ? parseFloat((totalDeposits / totalMeals).toFixed(2)) : 0;
 
-    const summary = users.map((user) => {
-      const { meals = 0, deposits = 0 } =
-        userEntryMap[user._id.toString()] || {};
-      const balance = parseFloat((deposits - meals * mealRate).toFixed(2));
+    //  summary
+    const summary = await Promise.all(
+      users.map(async (user) => {
+        const { meals = 0, deposits = 0 } =
+          userEntryMap[user._id.toString()] || {};
+        const balance = parseFloat((deposits - meals * mealRate).toFixed(2));
 
-      return {
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        totalMeal: meals,
-        totalDeposit: deposits,
-        balance,
-      };
-    });
+        // Get latest meal & deposit entry IDs
+        const [latestMealEntry, latestDepositEntry] = await Promise.all([
+          MessEntry.findOne({
+            userId: user._id,
+            messId,
+            type: "meal",
+            createdAt: { $gte: start, $lt: end },
+          })
+            .sort({ createdAt: -1 })
+            .select("_id")
+            .lean(),
+
+          MessEntry.findOne({
+            userId: user._id,
+            messId,
+            type: "deposit",
+            createdAt: { $gte: start, $lt: end },
+          })
+            .sort({ createdAt: -1 })
+            .select("_id")
+            .lean(),
+        ]);
+
+        return {
+          userId: user._id,
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          totalMeal: meals,
+          totalDeposit: deposits,
+          balance,
+          latestMealEntryId: latestMealEntry?._id || null,
+          latestDepositEntryId: latestDepositEntry?._id || null,
+        };
+      })
+    );
 
     return res.status(200).json({
       messName: mess.name,
@@ -168,6 +197,75 @@ export const getMessEntries = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getMessEntries:", error.message);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+
+export const updateMessEntry = async (req, res) => {
+  const { messId } = req.params;
+  const { userId, type, amount, month, year } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(messId)) {
+    return res.status(400).json({ message: "Invalid mess ID." });
+  }
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ message: "Invalid user ID." });
+  }
+  if (!["meal", "deposit"].includes(type)) {
+    return res.status(400).json({ message: "Invalid entry type." });
+  }
+  if (typeof amount !== "number" || isNaN(amount)) {
+    return res.status(400).json({ message: "Amount must be a valid number." });
+  }
+
+  try {
+    const now = new Date();
+    const selectedMonth = parseInt(month) || now.getMonth() + 1;
+    const selectedYear = parseInt(year) || now.getFullYear();
+
+    const start = new Date(selectedYear, selectedMonth - 1, 1); // inclusive
+    const end = new Date(selectedYear, selectedMonth, 1); // exclusive
+
+    // Find if entry already exists for same user, mess, type, month-year
+    let entry = await MessEntry.findOne({
+      messId,
+      userId,
+      type,
+      createdAt: { $gte: start, $lt: end },
+    });
+
+    if (entry) {
+      // Update existing entry
+      entry.amount += amount;
+
+      if (entry.amount < 0) {
+        return res
+          .status(400)
+          .json({ message: "Final amount cannot be negative." });
+      }
+
+      await entry.save();
+    } 
+
+    // Update user’s summary fields
+    if (type === "meal") {
+      await User.updateOne({ _id: userId }, { $inc: { mealCount: amount } });
+    } else if (type === "deposit") {
+      await User.updateOne({ _id: userId }, { $inc: { totalDeposit: amount } });
+    }
+
+    return res.status(200).json({
+      message: "Mess entry updated successfully.",
+      updatedEntry: {
+        userId,
+        type,
+        finalAmount: entry.amount,
+        delta: amount,
+      },
+    });
+  } catch (error) {
+    console.error("Error in updateMessEntry:", error.message);
     return res.status(500).json({ message: "Internal server error" });
   }
 };
