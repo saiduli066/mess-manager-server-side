@@ -1,271 +1,346 @@
-import mongoose from "mongoose";
-import {Types, startSession } from "mongoose";
+//controller/messEntry.controller
 import MessEntry from "../models/messEntry.model.js";
 import User from "../models/user.model.js";
 import Mess from "../models/mess.model.js";
+import DailyMeal from "../models/dailyMeal.model.js";
+import mongoose from "mongoose";
+import cron from "node-cron";
+import Notification from "../models/notification.model.js";
 
-
-
-
-export const addMessEntry = async (req, res) => {
-  const { type, entries } = req.body;
-  const messId = req.user?.messId;
-
-  if (!["meal", "deposit"].includes(type)) {
-    return res.status(400).json({ message: "Invalid entry type." });
-  }
-
-  if (!Array.isArray(entries) || entries.length === 0) {
-    return res.status(400).json({ message: "Entries must be a non-empty array." });
-  }
-
-  if (!Types.ObjectId.isValid(messId)) {
-    return res.status(403).json({ message: "User is not part of a valid mess." });
-  }
-
-  const session = await startSession();
-  session.startTransaction();
-
-  try {
-    const bulkUserOps = [];
-    const entryDocs = [];
-
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const date = now.toISOString().split("T")[0];
-
-    for (const entry of entries) {
-      const { userId, amount } = entry;
-
-      if (!Types.ObjectId.isValid(userId)) {
-        throw new Error("Invalid userId.");
-      }
-
-      const user = await User.findById(userId).select("messId").session(session);
-      if (!user || user.messId?.toString() !== messId.toString()) {
-        throw new Error("User not in the same mess.");
-      }
-
-      entryDocs.push({
-        userId,
-        messId,
-        amount,
-        type,
-        date,
-        month,
-        year,
-      });
-
-      bulkUserOps.push({
-        updateOne: {
-          filter: { _id: userId },
-          update: {
-            $inc: type === "meal"
-              ? { mealCount: amount || 0 }
-              : { totalDeposit: amount || 0 },
-          },
-        },
-      });
-    }
-
-    await MessEntry.insertMany(entryDocs, { session });
-
-    if (bulkUserOps.length > 0) {
-      await User.bulkWrite(bulkUserOps, { session });
-    }
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(200).json({ message: "Entries added successfully." });
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error("Error in addMessEntry:", error.message);
-    return res.status(500).json({ message: "Internal server error." });
-  }
-};
-
-
-
+// Get Mess Entries Report - UPDATED for consistency
 export const getMessEntries = async (req, res) => {
   try {
     const { messId } = req.params;
-    let { month, year } = req.query;
+    const { month, year } = req.query;
 
-    if (!mongoose.Types.ObjectId.isValid(messId)) {
-      return res.status(400).json({ message: "Invalid mess ID." });
-    }
-
-    const mess = await Mess.findById(messId).lean();
+    // Validate mess exists
+    const mess = await Mess.findById(messId);
     if (!mess) {
-      return res.status(404).json({ message: "Mess not found." });
+      return res.status(404).json({ message: "Mess not found" });
     }
 
-    const now = new Date();
-    const selectedMonth = parseInt(month) || now.getMonth() + 1;
-    const selectedYear = parseInt(year) || now.getFullYear();
+    // Calculate date range for the selected month/year
+    const selectedMonth = parseInt(month) || new Date().getMonth() + 1;
+    const selectedYear = parseInt(year) || new Date().getFullYear();
 
-    const start = new Date(selectedYear, selectedMonth - 1, 1); // inclusive
-    const end = new Date(selectedYear, selectedMonth, 1); // exclusive
+    const startDate = new Date(selectedYear, selectedMonth - 1, 1);
+    const endDate = new Date(selectedYear, selectedMonth, 0);
+    endDate.setHours(23, 59, 59, 999);
 
-    const filter = {
-      messId: new mongoose.Types.ObjectId(messId),
-      createdAt: { $gte: start, $lt: end },
-    };
+    // Get all members of the mess
+    const members = await User.find({ messId })
+      .select("name email image role totalDeposit")
+      .lean();
 
-    const [entries, users] = await Promise.all([
-      MessEntry.find(filter).populate("userId", "name image email").lean(),
-      User.find({ messId }).select("name image email _id").lean(),
-    ]);
+    // Get all meal records for the month - only counted meals
+    const mealRecords = await DailyMeal.find({
+      messId,
+      date: { $gte: startDate, $lte: endDate },
+    });
 
+    // Get all deposit entries for the month
+    const depositEntries = await MessEntry.find({
+      messId,
+      type: "deposit",
+      date: { $gte: startDate, $lte: endDate },
+    });
+
+    // Calculate totals and create summary
     let totalMeals = 0;
     let totalDeposits = 0;
-    const userEntryMap = {};
 
-    for (const entry of entries) {
-      const uid = entry.userId._id.toString();
-      if (!userEntryMap[uid]) {
-        userEntryMap[uid] = { meals: 0, deposits: 0 };
-      }
+    const summary = members.map((member) => {
+      // Calculate meals for this member (using new count-based structure)
+      const memberMealRecords = mealRecords.filter(
+        (record) => record.userId.toString() === member._id.toString()
+      );
 
-      if (entry.type === "meal") {
-        totalMeals += entry.amount;
-        userEntryMap[uid].meals += entry.amount;
-      } else if (entry.type === "deposit") {
-        totalDeposits += entry.amount;
-        userEntryMap[uid].deposits += entry.amount;
-      }
-    }
+      const lunchCount = memberMealRecords.reduce(
+        (sum, record) => sum + (record.meals?.lunch?.count || 0),
+        0
+      );
+      const dinnerCount = memberMealRecords.reduce(
+        (sum, record) => sum + (record.meals?.dinner?.count || 0),
+        0
+      );
 
-    const mealRate =
-      totalMeals > 0 ? parseFloat((totalDeposits / totalMeals).toFixed(2)) : 0;
+      const memberTotalMeals = lunchCount + dinnerCount;
+      totalMeals += memberTotalMeals;
 
-    //  summary
-    const summary = await Promise.all(
-      users.map(async (user) => {
-        const { meals = 0, deposits = 0 } =
-          userEntryMap[user._id.toString()] || {};
-        const balance = parseFloat((deposits - meals * mealRate).toFixed(2));
+      // Calculate deposits for this member (monthly only for report consistency)
+      const memberDeposits = depositEntries
+        .filter((entry) => entry.userId.toString() === member._id.toString())
+        .reduce((sum, entry) => sum + entry.amount, 0);
 
-        // Get latest meal & deposit entry IDs
-        const [latestMealEntry, latestDepositEntry] = await Promise.all([
-          MessEntry.findOne({
-            userId: user._id,
-            messId,
-            type: "meal",
-            createdAt: { $gte: start, $lt: end },
-          })
-            .sort({ createdAt: -1 })
-            .select("_id")
-            .lean(),
+      totalDeposits += memberDeposits;
 
-          MessEntry.findOne({
-            userId: user._id,
-            messId,
-            type: "deposit",
-            createdAt: { $gte: start, $lt: end },
-          })
-            .sort({ createdAt: -1 })
-            .select("_id")
-            .lean(),
-        ]);
+      return {
+        userId: member._id.toString(),
+        name: member.name,
+        email: member.email,
+        image: member.image,
+        totalDeposit: memberDeposits, // Fixed: Use monthly only for report
+        totalMeal: memberTotalMeals,
+        balance: 0, // Will calculate after meal rate
+        lifetimeDeposit: member.totalDeposit || 0, // Add for reference, but not used in balance
+      };
+    });
 
-        return {
-          userId: user._id,
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          totalMeal: meals,
-          totalDeposit: deposits,
-          balance,
-          latestMealEntryId: latestMealEntry?._id || null,
-          latestDepositEntryId: latestDepositEntry?._id || null,
-        };
-      })
-    );
+    // Calculate meal rate and balances
+    const totalMealCost = totalMeals > 0 ? totalDeposits / totalMeals : 0;
+    const mealRate = parseFloat(totalMealCost.toFixed(2));
 
-    return res.status(200).json({
+    // Calculate balances for each member (using monthly deposits)
+    summary.forEach((member) => {
+      member.balance = parseFloat(
+        (member.totalDeposit - member.totalMeal * mealRate).toFixed(2)
+      );
+    });
+
+    // Check if this month has been settled (simple flag based on current date)
+    const now = new Date();
+    const isSettled = now > endDate;
+
+    res.json({
       messName: mess.name,
       messCode: mess.code,
-      reportMonth: `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`,
+      reportMonth: `${selectedMonth}/${selectedYear}`,
       totalMeals,
       totalDeposits,
       mealRate,
       summary,
+      settled: isSettled, // New: Indicate if costs have been deducted
     });
   } catch (error) {
-    console.error("Error in getMessEntries:", error.message);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error("Get mess entries error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-
-export const updateMessEntry = async (req, res) => {
-  const { messId } = req.params;
-  const { userId, type, amount, month, year } = req.body;
-
-  if (!mongoose.Types.ObjectId.isValid(messId)) {
-    return res.status(400).json({ message: "Invalid mess ID." });
-  }
-  if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).json({ message: "Invalid user ID." });
-  }
-  if (!["meal", "deposit"].includes(type)) {
-    return res.status(400).json({ message: "Invalid entry type." });
-  }
-  if (typeof amount !== "number" || isNaN(amount)) {
-    return res.status(400).json({ message: "Amount must be a valid number." });
-  }
+// Add Mess Entry (Deposits only) - With transaction for integrity
+export const addMessEntry = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-    const now = new Date();
-    const selectedMonth = parseInt(month) || now.getMonth() + 1;
-    const selectedYear = parseInt(year) || now.getFullYear();
+    const userId = req.user._id;
+    const { entries } = req.body;
 
-    const start = new Date(selectedYear, selectedMonth - 1, 1); // inclusive
-    const end = new Date(selectedYear, selectedMonth, 1); // exclusive
+    console.log("💰 addMessEntry called:", { userId, entries });
 
-    // Find if entry already exists for same user, mess, type, month-year
-    let entry = await MessEntry.findOne({
-      messId,
-      userId,
-      type,
-      createdAt: { $gte: start, $lt: end },
-    });
-
-    if (entry) {
-      // Update existing entry
-      entry.amount += amount;
-
-      if (entry.amount < 0) {
-        return res
-          .status(400)
-          .json({ message: "Final amount cannot be negative." });
-      }
-
-      await entry.save();
-    } 
-
-    // Update user’s summary fields
-    if (type === "meal") {
-      await User.updateOne({ _id: userId }, { $inc: { mealCount: amount } });
-    } else if (type === "deposit") {
-      await User.updateOne({ _id: userId }, { $inc: { totalDeposit: amount } });
+    if (!entries || !Array.isArray(entries) || entries.length === 0) {
+      await session.abortTransaction();
+      return res.status(400).json({ message: "Entries array is required" });
     }
 
-    return res.status(200).json({
-      message: "Mess entry updated successfully.",
-      updatedEntry: {
-        userId,
-        type,
-        finalAmount: entry.amount,
-        delta: amount,
+    const user = await User.findById(userId).session(session);
+    if (!user.messId) {
+      await session.abortTransaction();
+      return res.status(400).json({ message: "Not in a mess" });
+    }
+
+    console.log("✅ User found, messId:", user.messId);
+
+    // Validate all users belong to the same mess (batch query for performance)
+    const userIds = entries.map((e) => e.userId);
+    const entryUsers = await User.find({
+      _id: { $in: userIds },
+      messId: user.messId,
+    }).session(session);
+
+    if (entryUsers.length !== entries.length) {
+      console.log("❌ Some users don't belong to the mess or don't exist");
+      await session.abortTransaction();
+      return res.status(400).json({ message: "Invalid user in entries" });
+    }
+
+    console.log("✅ All users validated");
+
+    // Validate deposit amounts
+    for (const entry of entries) {
+      if (entry.amount < 0) {
+        await session.abortTransaction();
+        return res
+          .status(400)
+          .json({ message: "Deposit amount cannot be negative" });
+      }
+      if (!isFinite(entry.amount) || isNaN(entry.amount)) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: "Invalid deposit amount" });
+      }
+    }
+
+    // Create deposit entries
+    const depositEntries = entries.map((entry) => ({
+      userId: entry.userId,
+      messId: user.messId,
+      amount: entry.amount,
+      type: "deposit",
+      createdBy: userId,
+      date: new Date(),
+    }));
+
+    console.log("📝 Creating deposit entries:", depositEntries.length);
+
+    await MessEntry.insertMany(depositEntries, { session });
+
+    console.log("✅ Deposit entries created");
+
+    // Update users' total deposits (batch update for performance)
+    const bulkOps = entries.map((entry) => ({
+      updateOne: {
+        filter: { _id: entry.userId },
+        update: { $inc: { totalDeposit: entry.amount } },
       },
-    });
+    }));
+
+    await User.bulkWrite(bulkOps, { session });
+    console.log("✅ Updated totalDeposit for all users");
+
+    // Create notifications (batch insert for performance) - skip 0 amounts
+    const notifications = entries
+      .filter((entry) => entry.amount > 0)
+      .map((entry) => ({
+        userId: entry.userId,
+        messId: user.messId,
+        type: "deposit",
+        title: "Deposit Added",
+        message: `A deposit of ${entry.amount} has been added to your account.`,
+      }));
+
+    if (notifications.length > 0) {
+      await Notification.insertMany(notifications, { session });
+      console.log(`✅ Created ${notifications.length} notifications`);
+    } else {
+      console.log("ℹ️ No notifications created (all amounts were 0)");
+    }
+
+    await session.commitTransaction();
+    console.log("✅ Transaction committed successfully");
+
+    res.json({ message: "Deposits added successfully" });
   } catch (error) {
-    console.error("Error in updateMessEntry:", error.message);
-    return res.status(500).json({ message: "Internal server error" });
+    await session.abortTransaction();
+    console.error("❌ Add mess entry error:", error);
+    console.error("Error stack:", error.stack);
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
   }
+};
+
+// NEW: Monthly Settlement - Deduct costs from totalDeposit
+const settleMonthly = async () => {
+  try {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    lastMonthEnd.setHours(23, 59, 59, 999);
+
+    console.log(
+      `📊 Starting monthly settlement for ${lastMonth.toLocaleString(
+        "default",
+        { month: "long" }
+      )} ${lastMonth.getFullYear()}`
+    );
+
+    // Get all messes
+    const messes = await Mess.find();
+
+    for (const mess of messes) {
+      const messId = mess._id;
+
+      // Replicate getMessEntries logic to calculate balances
+      const members = await User.find({ messId }).select("_id totalDeposit");
+      const mealRecords = await DailyMeal.find({
+        messId,
+        date: { $gte: lastMonth, $lte: lastMonthEnd },
+      });
+      const depositEntries = await MessEntry.find({
+        messId,
+        type: "deposit",
+        date: { $gte: lastMonth, $lte: lastMonthEnd },
+      });
+
+      let totalMeals = 0;
+      let totalDeposits = 0;
+
+      const summaries = members.map((member) => {
+        const memberMealRecords = mealRecords.filter(
+          (r) => r.userId.toString() === member._id.toString()
+        );
+        const memberTotalMeals = memberMealRecords.reduce(
+          (sum, r) =>
+            sum + (r.meals?.lunch?.count || 0) + (r.meals?.dinner?.count || 0),
+          0
+        );
+        totalMeals += memberTotalMeals;
+
+        const memberDeposits = depositEntries
+          .filter((e) => e.userId.toString() === member._id.toString())
+          .reduce((sum, e) => sum + e.amount, 0);
+        totalDeposits += memberDeposits;
+
+        return {
+          userId: member._id,
+          totalMeal: memberTotalMeals,
+          monthlyDeposit: memberDeposits,
+        };
+      });
+
+      const mealRate = totalMeals > 0 ? totalDeposits / totalMeals : 0;
+
+      const session = await mongoose.startSession();
+      session.startTransaction();
+
+      try {
+        for (const summary of summaries) {
+          const cost = summary.totalMeal * mealRate;
+          await User.findByIdAndUpdate(
+            summary.userId,
+            { $inc: { totalDeposit: -cost } },
+            { session }
+          );
+          // Log settlement (could add a Settlement model for audit)
+          console.log(
+            `💸 Settled for user ${summary.userId}: Deducted ${cost.toFixed(2)}`
+          );
+
+          // NEW: Create notification for user on settlement
+          const notification = new Notification({
+            userId: summary.userId,
+            messId,
+            type: "system",
+            title: "Monthly Settlement",
+            message: `Your account has been deducted ${cost.toFixed(
+              2
+            )} for last month's meals.`,
+          });
+          await notification.save({ session });
+        }
+        await session.commitTransaction();
+      } catch (err) {
+        await session.abortTransaction();
+        console.error(`❌ Settlement error for mess ${messId}:`, err);
+      } finally {
+        session.endSession();
+      }
+    }
+
+    console.log("✅ Monthly settlement completed");
+  } catch (error) {
+    console.error("❌ Monthly settlement system error:", error);
+  }
+};
+
+// NEW: Setup Monthly Settlement Cron
+export const setupMonthlySettlement = () => {
+  // Run on the 1st of every month at 00:00
+  cron.schedule("0 0 1 * *", async () => {
+    await settleMonthly();
+  });
+  console.log("✅ Monthly settlement scheduled for the 1st of each month");
 };
