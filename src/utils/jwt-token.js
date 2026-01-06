@@ -11,17 +11,15 @@ export const generateToken = (userId, res) => {
     expiresIn: "7d",
   });
 
-  // Universal cookie settings for all devices/browsers
-  const isProduction = process.env.NODE_ENV === "production";
-
+  // Cross-site compatible cookie settings (Required for Netlify -> Vercel)
   res.cookie("jwt", token, {
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    httpOnly: true, // Prevents XSS attacks
-    sameSite: isProduction ? "none" : "lax", // "none" for cross-site in production
-    secure: isProduction, // HTTPS only in production
-    path: "/", // Available on all routes
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: "none", // Required for cross-site requests
+    secure: true, // Required for SameSite=None
+    path: "/",
   });
 
-  // console.log("✅ JWT Token generated for user:", userId);
+  console.log("✅ JWT Token generated for user:", userId);
   return token;
 };

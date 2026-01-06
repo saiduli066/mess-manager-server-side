@@ -61,17 +61,31 @@ const app = express();
 app.set("trust proxy", 1);
 
 // Enhanced CORS for universal device compatibility
+// app.use(
+//   cors({
+//     origin: [
+//       "http://localhost:5173",
+//       "http://localhost:3000",
+//       "https://mess-manager-backend.vercel.app/api/v1",
+//       "https://un-mess.netlify.app",
+//       "https://mess-manager-backend-saiduli066-saiduli066s-projects.vercel.app",
+//       "https://mess-manager-backend.vercel.app",
+//     ],
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+//   })
+// );
+
+// Simplified CORS for maximum compatibility
 app.use(
   cors({
     origin: [
       "http://localhost:5173",
       "http://localhost:3000",
-      "https://mess-mantainer.netlify.app",
-      "https://mess-manager-backend-saiduli066-saiduli066s-projects.vercel.app",
+      "https://un-mess.netlify.app",
     ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
 

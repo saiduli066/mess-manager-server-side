@@ -105,15 +105,12 @@ export const login = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
-    const isProduction = process.env.NODE_ENV === "production";
-
-    // Universal logout - clear cookie with same settings as generation
+    // Clear cookie with simplified settings
     res.clearCookie("jwt", {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
+      secure: false,
+      sameSite: "lax",
       path: "/",
-      // domain: isProduction ? ".yourdomain.com" : undefined,
     });
 
     console.log("✅ User logged out successfully");
@@ -309,26 +306,18 @@ export const forgotPassword = async (req, res) => {
         : process.env.CLIENT_URL;
     const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
 
-    // Send email
-    try {
-      await sendEmail(
-        user.email,
-        "Password Reset Request",
-        forgotPasswordTemplate(resetUrl, user.name)
-      );
+    // Send response immediately and email asynchronously (non-blocking)
+    res.json({ message: "Password reset email sent successfully" });
 
-      res.json({ message: "Password reset email sent successfully" });
-    } catch (emailError) {
-      // If email fails, clear the token
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save();
-
+    // Send email in background without waiting
+    sendEmail(
+      user.email,
+      "Password Reset Request",
+      forgotPasswordTemplate(resetUrl, user.name)
+    ).catch((emailError) => {
       console.error("Email sending failed:", emailError);
-      return res
-        .status(500)
-        .json({ message: "Error sending email. Please try again later." });
-    }
+      // Optionally: You could implement a retry mechanism or notification system here
+    });
   } catch (error) {
     console.error("Forgot password error:", error);
     res.status(500).json({ message: "Internal Server Error" });
